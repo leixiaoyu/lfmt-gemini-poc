@@ -26,6 +26,7 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
+    "@aws-cdk/aws-lambda-nodejs": "^1.203.0",
     "@lfmt/shared-types": "file:../../shared-types",
     "aws-cdk-lib": "^2.100.0",
     "constructs": "^10.3.0"

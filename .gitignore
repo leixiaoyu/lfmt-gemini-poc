@@ -32,8 +32,11 @@ frontend/lib/
 # Environment variables and secrets
 .env
 .env.local
+.env.development
 .env.development.local
+.env.test
 .env.test.local
+.env.production
 .env.production.local
 .env.*.local
 
@@ -162,3 +165,19 @@ stack-outputs.json
 **/config/local.*
 **/config/dev.*
 **/config/prod.*
+
+# Ignore environment files
+.env
+*.env.*
+
+# Project documentation
+/project-docs/
+
+# Dependency directories
+node_modules/
+
+# Cache directories
+.npm-cache/
+
+# CDK output
+cdk.out/

@@ -25,8 +25,16 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
       statusCode: 200,
       body: JSON.stringify({ message: 'Password reset email sent' }),
     };
-  } catch (error) {
-    console.error(error);
+  } catch (error: any) {
+    console.error(error); // Log the error for internal review
+    if (error.message.includes('UserNotFoundException')) {
+      // To prevent user enumeration, do not reveal that the user does not exist.
+      // Return a success response as if the email was sent.
+      return {
+        statusCode: 200,
+        body: JSON.stringify({ message: 'Password reset email sent' }),
+      };
+    }
     return {
       statusCode: 500,
       body: JSON.stringify({ message: 'Internal server error' }),

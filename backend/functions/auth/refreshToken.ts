@@ -26,14 +26,20 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ 
-        message: 'Token refreshed successfully', 
+      body: JSON.stringify({
+        message: 'Token refreshed successfully',
         accessToken: AuthenticationResult?.AccessToken,
         idToken: AuthenticationResult?.IdToken,
       }),
     };
-  } catch (error) {
+  } catch (error: any) {
     console.error(error);
+    if (error.message.includes('NotAuthorizedException')) {
+      return {
+        statusCode: 401,
+        body: JSON.stringify({ message: 'Invalid refresh token' }),
+      };
+    }
     return {
       statusCode: 500,
       body: JSON.stringify({ message: 'Internal server error' }),

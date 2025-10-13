@@ -27,15 +27,21 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ 
-        message: 'User logged in successfully', 
+      body: JSON.stringify({
+        message: 'User logged in successfully',
         accessToken: AuthenticationResult?.AccessToken,
         refreshToken: AuthenticationResult?.RefreshToken,
         idToken: AuthenticationResult?.IdToken,
       }),
     };
-  } catch (error) {
+  } catch (error: any) {
     console.error(error);
+    if (error.message.includes('NotAuthorizedException') || error.message.includes('UserNotFoundException')) {
+      return {
+        statusCode: 401,
+        body: JSON.stringify({ message: 'Incorrect email or password' }),
+      };
+    }
     return {
       statusCode: 500,
       body: JSON.stringify({ message: 'Internal server error' }),

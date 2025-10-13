@@ -36,8 +36,14 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
       statusCode: 201,
       body: JSON.stringify({ message: 'User registered successfully' }),
     };
-  } catch (error) {
+  } catch (error: any) {
     console.error(error);
+    if (error.message.includes('UsernameExistsException')) {
+      return {
+        statusCode: 409,
+        body: JSON.stringify({ message: 'User already exists' }),
+      };
+    }
     return {
       statusCode: 500,
       body: JSON.stringify({ message: 'Internal server error' }),

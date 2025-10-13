@@ -17,6 +17,8 @@ import * as stepfunctions from 'aws-cdk-lib/aws-stepfunctions';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as route53 from 'aws-cdk-lib/aws-route53';
+import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
+import * as s3n from 'aws-cdk-lib/aws-s3-notifications';
 
 export interface LfmtInfrastructureStackProps extends StackProps {
   stackName: string;
@@ -248,6 +250,12 @@ export class LfmtInfrastructureStack extends Stack {
       refreshTokenValidity: Duration.days(30),
       preventUserExistenceErrors: true,
     });
+
+    this.userPool.addDomain('CognitoDomain', {
+      cognitoDomain: {
+        domainPrefix: `lfmt-poc-${this.stackName.toLowerCase()}`,
+      },
+    });
   }
 
   private createApiGateway() {
@@ -317,46 +325,119 @@ export class LfmtInfrastructureStack extends Stack {
       validateRequestParameters: true,
     });
 
-    const registerLambda = new lambda.Function(this, 'RegisterLambda', {
-        runtime: lambda.Runtime.NODEJS_22_X,
-        code: lambda.Code.fromAsset(path.join(__dirname, '../../functions/auth')),
-        handler: 'register.handler',
-        environment: {
-            COGNITO_CLIENT_ID: this.userPoolClient.userPoolClientId,
-        }
-    });
+    // Conditionally define Lambdas to avoid Docker builds during tests
+    const isTest = process.env.NODE_ENV === 'test';
 
-    const loginLambda = new lambda.Function(this, 'LoginLambda', {
-        runtime: lambda.Runtime.NODEJS_22_X,
-        code: lambda.Code.fromAsset(path.join(__dirname, '../../functions/auth')),
-        handler: 'login.handler',
-        environment: {
-            COGNITO_CLIENT_ID: this.userPoolClient.userPoolClientId,
-        }
-    });
+    const registerLambda = isTest
+      ? new lambda.Function(this, 'RegisterLambda', {
+          runtime: lambda.Runtime.NODEJS_22_X,
+          code: lambda.Code.fromInline('exports.handler = () => {};'),
+          handler: 'register.handler',
+        })
+      : new NodejsFunction(this, 'RegisterLambda', {
+          runtime: lambda.Runtime.NODEJS_22_X,
+          entry: path.join(__dirname, '../../functions/auth/register.ts'),
+          handler: 'handler',
+          environment: {
+              COGNITO_CLIENT_ID: this.userPoolClient.userPoolClientId,
+          }
+      });
 
-    const refreshTokenLambda = new lambda.Function(this, 'RefreshTokenLambda', {
-        runtime: lambda.Runtime.NODEJS_22_X,
-        code: lambda.Code.fromAsset(path.join(__dirname, '../../functions/auth')),
-        handler: 'refreshToken.handler',
-        environment: {
-            COGNITO_CLIENT_ID: this.userPoolClient.userPoolClientId,
-        }
-    });
+    const loginLambda = isTest
+      ? new lambda.Function(this, 'LoginLambda', {
+          runtime: lambda.Runtime.NODEJS_22_X,
+          code: lambda.Code.fromInline('exports.handler = () => {};'),
+          handler: 'login.handler',
+        })
+      : new NodejsFunction(this, 'LoginLambda', {
+          runtime: lambda.Runtime.NODEJS_22_X,
+          entry: path.join(__dirname, '../../functions/auth/login.ts'),
+          handler: 'handler',
+          environment: {
+              COGNITO_CLIENT_ID: this.userPoolClient.userPoolClientId,
+          }
+      });
 
-    const resetPasswordLambda = new lambda.Function(this, 'ResetPasswordLambda', {
-        runtime: lambda.Runtime.NODEJS_22_X,
-        code: lambda.Code.fromAsset(path.join(__dirname, '../../functions/auth')),
-        handler: 'resetPassword.handler',
-        environment: {
-            COGNITO_CLIENT_ID: this.userPoolClient.userPoolClientId,
-        }
+    const refreshTokenLambda = isTest
+      ? new lambda.Function(this, 'RefreshTokenLambda', {
+          runtime: lambda.Runtime.NODEJS_22_X,
+          code: lambda.Code.fromInline('exports.handler = () => {};'),
+          handler: 'refreshToken.handler',
+        })
+      : new NodejsFunction(this, 'RefreshTokenLambda', {
+          runtime: lambda.Runtime.NODEJS_22_X,
+          entry: path.join(__dirname, '../../functions/auth/refreshToken.ts'),
+          handler: 'handler',
+          environment: {
+              COGNITO_CLIENT_ID: this.userPoolClient.userPoolClientId,
+          }
+      });
+
+    const resetPasswordLambda = isTest
+      ? new lambda.Function(this, 'ResetPasswordLambda', {
+          runtime: lambda.Runtime.NODEJS_22_X,
+          code: lambda.Code.fromInline('exports.handler = () => {};'),
+          handler: 'resetPassword.handler',
+        })
+      : new NodejsFunction(this, 'ResetPasswordLambda', {
+          runtime: lambda.Runtime.NODEJS_22_X,
+          entry: path.join(__dirname, '../../functions/auth/resetPassword.ts'),
+          handler: 'handler',
+          environment: {
+              COGNITO_CLIENT_ID: this.userPoolClient.userPoolClientId,
+          }
+      });
+
+    const requestUploadLambda = isTest
+      ? new lambda.Function(this, 'RequestUploadLambda', {
+          runtime: lambda.Runtime.NODEJS_22_X,
+          code: lambda.Code.fromInline('exports.handler = () => {};'),
+          handler: 'requestUpload.handler',
+        })
+      : new NodejsFunction(this, 'RequestUploadLambda', {
+          runtime: lambda.Runtime.NODEJS_22_X,
+          entry: path.join(__dirname, '../../functions/uploads/requestUpload.ts'),
+          handler: 'handler',
+          environment: {
+              DOCUMENT_BUCKET_NAME: this.documentBucket.bucketName,
+          }
+      });
+
+    const authorizer = new apigateway.CognitoUserPoolsAuthorizer(this, 'CognitoAuthorizer', {
+      cognitoUserPools: [this.userPool],
     });
 
     authResource.addMethod('POST', new apigateway.LambdaIntegration(registerLambda));
     authResource.addResource('login').addMethod('POST', new apigateway.LambdaIntegration(loginLambda));
     authResource.addResource('refresh').addMethod('POST', new apigateway.LambdaIntegration(refreshTokenLambda));
     authResource.addResource('reset-password').addMethod('POST', new apigateway.LambdaIntegration(resetPasswordLambda));
+
+    const uploadsResource = this.api.root.addResource('uploads');
+    uploadsResource.addMethod('POST', new apigateway.LambdaIntegration(requestUploadLambda), {
+      authorizer,
+      authorizationType: apigateway.AuthorizationType.COGNITO,
+    });
+
+    const processUploadLambda = isTest
+      ? new lambda.Function(this, 'ProcessUploadLambda', {
+          runtime: lambda.Runtime.NODEJS_22_X,
+          code: lambda.Code.fromInline('exports.handler = () => {};'),
+          handler: 'processUpload.handler',
+        })
+      : new NodejsFunction(this, 'ProcessUploadLambda', {
+          runtime: lambda.Runtime.NODEJS_22_X,
+          entry: path.join(__dirname, '../../functions/uploads/processUpload.ts'),
+          handler: 'handler',
+          environment: {
+              JOBS_TABLE_NAME: this.jobsTable.tableName,
+          }
+      });
+
+    this.documentBucket.addEventNotification(
+      s3.EventType.OBJECT_CREATED,
+      new s3n.LambdaDestination(processUploadLambda),
+      { prefix: 'uploads/' } 
+    );
   }
 
   private createLogGroups(removalPolicy: RemovalPolicy) {
@@ -441,6 +522,11 @@ export class LfmtInfrastructureStack extends Stack {
                 `${this.resultsBucket.bucketArn}/*`,
               ],
             }),
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: ['s3:PutObject'],
+              resources: [`${this.documentBucket.bucketArn}/*`],
+            }),
           ],
         }),
         CognitoAccess: new iam.PolicyDocument({
@@ -448,12 +534,27 @@ export class LfmtInfrastructureStack extends Stack {
             new iam.PolicyStatement({
               effect: iam.Effect.ALLOW,
               actions: [
+                'cognito-idp:SignUp',
                 'cognito-idp:AdminCreateUser',
                 'cognito-idp:AdminSetUserPassword',
                 'cognito-idp:AdminGetUser',
                 'cognito-idp:AdminUpdateUserAttributes',
               ],
               resources: [this.userPool.userPoolArn],
+            }),
+          ],
+        }),
+        UploadProcessingAccess: new iam.PolicyDocument({
+          statements: [
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: ['s3:GetObject'],
+              resources: [`${this.documentBucket.bucketArn}/*`],
+            }),
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: ['dynamodb:UpdateItem'],
+              resources: [this.jobsTable.tableArn],
             }),
           ],
         }),

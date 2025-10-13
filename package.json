@@ -4,6 +4,7 @@
   "description": "Long-Form Translation Service POC - AWS serverless translation platform for 65K-400K word documents",
   "private": true,
   "scripts": {
+    "test": "cd shared-types && npm test && cd ../backend/infrastructure && npm test && cd ../../backend/functions && npm install --cache ./.npm-cache --legacy-peer-deps && npm test",
     "setup": "npm run setup:hooks && npm run install:all",
     "setup:hooks": "./scripts/setup-git-hooks.sh",
     "install:all": "npm run install:shared && npm run install:infra",
